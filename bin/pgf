@@ -1,8 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-self="$here/$(basename "${BASH_SOURCE[0]}")"
+resolve() {
+  local path="$1" dir
+  while [[ -L "$path" ]]; do
+    dir="$(cd -P "$(dirname "$path")" && pwd)"
+    path="$(readlink "$path")"
+    [[ "$path" == /* ]] || path="$dir/$path"
+  done
+  printf '%s\n' "$path"
+}
+
+self="$(resolve "${BASH_SOURCE[0]}")"
+here="$(cd -P "$(dirname "$self")" && pwd)"
+self="$here/$(basename "$self")"
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/pgf"
 user_dir="${PGF_QUERIES:-$config_dir/queries}"
 connections_dir="${PGF_CONNECTIONS:-$config_dir/connections}"
@@ -24,6 +35,40 @@ die() {
 
 need() {
   command -v "$1" >/dev/null 2>&1 || die "$1 not found in PATH"
+}
+
+find_psql() {
+  local dir
+  command -v psql >/dev/null 2>&1 && return 0
+  for dir in \
+    "${HOMEBREW_PREFIX:-/opt/homebrew}/opt/libpq/bin" \
+    /opt/homebrew/opt/libpq/bin \
+    /usr/local/opt/libpq/bin \
+    /opt/homebrew/opt/postgresql@*/bin \
+    /usr/local/opt/postgresql@*/bin \
+    /usr/lib/postgresql/*/bin \
+    /usr/pgsql-*/bin \
+    /Applications/Postgres.app/Contents/Versions/latest/bin; do
+    if [[ -x "$dir/psql" ]]; then
+      PATH="$dir:$PATH"
+      return 0
+    fi
+  done
+  die "psql not found; install the PostgreSQL client (libpq or postgresql-client)"
+}
+
+use_pager() {
+  if [[ -z "${PSQL_PAGER:-}" ]] && command -v pspg >/dev/null 2>&1; then
+    export PSQL_PAGER=pspg
+  fi
+}
+
+pretty_path() {
+  if [[ "$1" == "$HOME"/* ]]; then
+    printf '%s/%s\n' "~" "${1#"$HOME"/}"
+  else
+    printf '%s\n' "$1"
+  fi
 }
 
 usage() {
@@ -88,7 +133,7 @@ service_table() {
 services() {
   local name file
   service_table | while IFS=$'\t' read -r name file; do
-    printf '%s\t%s\n' "$name" "${file/#"$HOME"\//\~/}"
+    printf '%s\t%s\n' "$name" "$(pretty_path "$file")"
   done
 }
 
@@ -100,7 +145,7 @@ service_info() {
   local file
   file="$(service_file "$1")"
   [[ -n "$file" ]] || return 0
-  printf 'from %s\n\n' "${file/#"$HOME"\//\~/}"
+  printf 'from %s\n\n' "$(pretty_path "$file")"
   awk -v want="$1" '
     /^[[:space:]]*\[/ { current = $0; gsub(/^[[:space:]]*\[|\][[:space:]]*$/, "", current); next }
     current == want && NF && $0 !~ /^[[:space:]]*[#;]/ && $0 !~ /^[[:space:]]*password[[:space:]]*=/ {
@@ -179,7 +224,8 @@ pick_query() {
 }
 
 connect() {
-  need psql
+  find_psql
+  use_pager
   use_service "$1"
   exec psql "service=$1"
 }
@@ -187,7 +233,8 @@ connect() {
 run_query() {
   local service="$1" name="$2" file var value
   local -a args=()
-  need psql
+  find_psql
+  use_pager
   file="$(query_path "$name")" || die "no query named $name"
   use_service "$service"
   while IFS= read -r var; do

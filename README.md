@@ -2,7 +2,7 @@
 
 **Pick a Postgres connection, pick a saved query, run it — all from fzf.**
 
-pgf is a small bash wrapper around the official `psql` client. Connections are plain libpq service files, queries are plain `.sql` files, and fzf glues them together with live previews. It runs the same on Linux and macOS.
+pgf is a small bash wrapper around the official `psql` client. Connections are plain libpq service files, queries are plain `.sql` files, and fzf glues them together with live previews. It runs the same on Linux and macOS, with or without Nix: the script finds its built-in queries, `psql` and `pspg` by itself.
 
 ```
 $ pgf q
@@ -32,7 +32,7 @@ table: users
 - **Saved queries.** A starter set ships with pgf; your own `.sql` files sit next to it and override it by name.
 - **Prompts for variables.** A query with `:'table'` in it asks `table:` before it runs and passes the answer to psql as a variable, quoted properly.
 - **Passwords stay hidden.** The preview shows every key of a connection except `password`.
-- **Nix-first, Nix-optional.** The flake brings psql, fzf, pspg and GNU tools along; without Nix it is one bash script.
+- **Nix-optional.** The flake brings psql, fzf and pspg along; without Nix it is one bash script that runs on the stock macOS bash 3.2 and BSD tools as well as on Linux.
 
 ## Usage
 
@@ -97,7 +97,7 @@ order by created_at desc
 limit 20;
 ```
 
-Output goes through `$PSQL_PAGER`; the Nix package sets it to [pspg](https://github.com/okbob/pspg) unless you already have one.
+Output goes through `$PSQL_PAGER`; when it is unset and [pspg](https://github.com/okbob/pspg) is installed, pgf uses pspg.
 
 ## Install
 
@@ -135,16 +135,20 @@ nix run github:kremeshnoi/pgf -- q
 
 ### Without Nix
 
-pgf needs bash 4 or newer, `psql` and `fzf`; `pspg` and `bat` are optional.
+pgf needs bash, `psql` and `fzf`; `pspg` and `bat` are optional.
 
 ```bash
-brew install bash libpq fzf pspg      # macOS
-sudo apt install postgresql-client fzf pspg   # Debian, Ubuntu
+brew install libpq fzf pspg                    # macOS
+sudo apt install postgresql-client fzf pspg    # Debian, Ubuntu
+sudo dnf install postgresql fzf pspg           # Fedora
 
-git clone https://github.com/kremeshnoi/pgf ~/.local/share/pgf
+git clone https://github.com/kremeshnoi/pgf ~/.local/src/pgf
+ln -s ~/.local/src/pgf/bin/pgf ~/.local/bin/pgf
 ```
 
-Then put `~/.local/share/pgf/bin` on your `PATH`. The script finds the built-in queries in `../queries` next to itself, or wherever `PGF_BUILTIN_QUERIES` points.
+`~/.local/bin` has to be on `PATH`. The script follows the link back to the checkout and finds the built-in queries in `../queries`, or wherever `PGF_BUILTIN_QUERIES` points; `git -C ~/.local/src/pgf pull` updates it.
+
+`psql` does not have to be on `PATH`: when it is missing, pgf looks in Homebrew's keg-only `libpq` and `postgresql@*`, in `/usr/lib/postgresql/*/bin`, `/usr/pgsql-*/bin` and Postgres.app.
 
 ## Environment
 
@@ -155,7 +159,7 @@ Then put `~/.local/share/pgf/bin` on your `PATH`. The script finds the built-in 
 | `PGF_BUILTIN_QUERIES` | set by the package | folder of the built-in queries |
 | `PGSERVICEFILE` | `~/.pg_service.conf` | the standard libpq service file |
 | `PGSYSCONFDIR` | unset | folder of a system-wide `pg_service.conf` |
-| `PSQL_PAGER` | `pspg` with Nix | pager for query results |
+| `PSQL_PAGER` | `pspg` when installed | pager for query results |
 | `VISUAL`, `EDITOR` | `vi` | editor for `pgf edit` |
 
 ## Development
